@@ -1,0 +1,347 @@
+---
+title: "Understanding Ontario Highway Investments"
+output: pdf_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+# 1. Introduction
+## 1.1 Objective
+The goal of this study is to analyze the Ontario Highways Program datasets to gain insights into how highway infrastructure projects are distributed across the province.
+
+Specifically, this study aims to answer the following questions:
+
+- Where are highway projects concentrated across Ontario?
+
+- How do expansion projects differ from rehabilitation projects?
+
+- How project costs differ between Northern and Southern programs?
+
+- Is there a relationship between project length and estimated cost?
+
+- Can project characteristics be used to predict whether a project has an estimated cost above or below $25 million?
+
+## 1.2 Dataset Description
+The data used in this study was obtained from: https://data.ontario.ca/dataset/https-www-ontario-ca-page-ontarios-highway-programs
+
+This analysis uses two datasets provided:
+
+- Ontario's northern highways program
+
+- Ontario's southern highways program
+
+The dataset contains the following variables:
+
+- Program Type (text): Identifies whether the project is Rehabilitation or Expansion
+
+- Start Year (text): Year the project started or is scheduled to start
+
+- Region (text): Geographic area the project resides
+
+- Highway (text): Highway number(s)
+
+- Location (text): Where on the highway the project is occuring
+
+- Type of Work (text): Kind of work being performed
+
+- Highway Program status (text): Status of the project
+
+- Target Completion (text): Year the project was completed or is scheduled to be completed
+
+- Contract # (text): Contract # associated to the project
+
+- Project Length (kilometers) (text): Length of the project
+
+- Estimated Cost Range (text): Value of the project within defined dollar range
+
+- Engineering Status (text): Status of the engineering component of the project
+
+- Delivery Method (text): Type of delivery method of the project.
+
+# 2. Data preparation
+Before conducting the analysis, serveral preparation and data cleaning steps were performted to improve data quality and facilitate analysis, including:
+
+- Combined the Northern and Southern Ontario highway datasets into a single dataset
+
+- Handled missing values
+
+-  Converted Project Length from text to a numeric variable
+
+- Removed unncessary whitesppace and standardized text format when applicable
+
+```{r}
+library(dplyr)
+library(stringr)
+
+# Load datasets
+north = read.csv("ontario-highway-northern.csv")
+south = read.csv("ontario-highway-southern.csv")
+
+# Add Area variable
+north = north %>% 
+  mutate(Area = "North")
+south = south %>% 
+  mutate(Area = "South")
+
+# Combine datasets
+highways = bind_rows(north, south)
+
+# Standardize Region variable
+highways = highways %>%
+  mutate(Region = str_to_lower(Region),
+         Region = case_when(
+           str_detect(Region, "east") ~ "East",
+           str_detect(Region, "west") ~ "West",
+           str_detect(Region, "central") ~ "Central",
+           str_detect(Region, "north") ~ "North",
+           TRUE ~ "Other"
+         ))
+
+# Replace empty strings with NA
+highways = highways %>%
+  mutate(across(where(is.character), \(x) na_if(x, "")))
+```
+
+# 3. Data Visualization
+This section explores Ontario's highway infrastrucutre projects through visual analysis, focusing on regional distribution, project types, cost ranges, and project characteristics.
+
+## 3.1 Project Distribution by Region and Area
+This visualization examines how highway projects are distributed across different regions and areas in Ontario, providing an overview of where infrastructure activity is concentrated.
+
+```{r}
+library(ggplot2)
+data2 = highways %>%
+  group_by(Area, Region) %>%
+  summarise(count = n())
+
+ggplot(data2, aes(x=Area, y=count, fill=Region)) +
+  geom_bar(stat="identity") +
+  labs(title="Distribution of Highway Project by Area and Region",
+    x="Area", y="Number of Projects")
+```
+The bar charts show that Southern Ontario contains a higher overall number of highway projects compared to Northern Ontario. However, there are regional differences. Northern Ontario has a higher number of projects in the West region, while Southern Ontario has a higher number of projects in the East region. In addition, Central region projects appear only in the Southern Ontario.
+
+## 3.2 Differences between Program Types
+This section examines the differences between Expansion and Rehabilitation program types in Ontario. The analysis focuses on how these two program types differ in terms of project characteristics, including project length, type of work, ans estimated cost range.
+
+
+```{r}
+ggplot(highways, aes(x=Area, fill=Program.Type)) +
+  geom_bar(position="dodge") +
+  labs(title="Distribution of Program Types",
+       x="Area",
+       y="Number of Projects",
+       fill="Program Type")
+```
+
+The bar chart shows that Ontario's highway investments are primarily focused on maintaining existing roads rather than expanding infrastructure.
+
+```{r}
+ggplot(highways, aes(x=Program.Type,
+                    y=Project.Length..kilometres.)) +
+  geom_boxplot() +
+  labs(title="Project Length by Program Type",
+       x="Program Type",
+       y="Project Length (km)")
+```
+The boxplots show that expansion and rehabilitation projects have a similar speard in project length. However, the median project length differs between the two program types. For expansion projects, the median is located near the center of the box, indicating a balanced distribution of project lengths. On the other hand, the median for rehabilitation projects is positioned closer to the lower quartile, indicating that a larger proportion of rehabilitation projects are shorter in length. Additionally, there are some outliers for rehabilitation projects, suggesting that there is a small number of very long rehabilitation projects.
+
+```{r}
+count_rehab = sum(highways$Program.Type=="Rehab")
+count_expansion = sum(highways$Program.Type=="Expansion")
+status_data = highways %>%
+  group_by(Highway.Program.Status, Program.Type) %>%
+  summarise(count = n()) %>%
+  mutate(prop=case_when(Program.Type == "Rehab" ~ count/count_rehab,
+                        Program.Type == "Expansion" ~ count/count_expansion),
+         label=paste(round(prop*100, 1), "%"))
+
+ggplot(status_data, aes(x=1, y=prop, fill=Highway.Program.Status)) +
+  geom_bar(stat="identity") +
+  coord_polar("y") +
+  geom_text(aes(label=label),
+            position=position_stack(vjust=0.5),
+            size=4) +
+  scale_fill_manual(values=c(
+    "Planned"="lightblue",
+    "Completed"="lightgreen",
+    "Underway"="pink"
+  )) +
+  facet_wrap(~Program.Type) +
+  labs(title="Proportion of Project Status",
+       fill="Project Status") +
+  theme_void()
+```
+The pie charts show that the distribution of project statues is similar between rehabilitation and expansion projects. Majority of projects are planned.
+
+## 3.3 Estimated Cost Range by Area
+```{r}
+# Re-order cost range
+highways$Estimated.Cost.Range = factor(
+  highways$Estimated.Cost.Range,
+  levels=c(
+    "$0 to $10 million",
+    "$10 to $25 million",
+    "$25 to $100 million",
+    "$100 to $250 million",
+    "$250 to $500 million",
+    "$500 million to $1 billion",
+    "Over $1 billion"
+  )
+)
+
+ggplot(highways, 
+       aes(x=Area, fill=Estimated.Cost.Range)) +
+  geom_bar(position="fill") +
+  labs(title="Estimated Cost Range Distribution by Area",
+       x="Area", y="Proportion",
+       fill="Cost Range")
+```
+The Southern Program contains a higher proportion of high-cost projects compared to the Nothern Program, suggesting greater investment in Southern Ontario highway infrastructure.
+
+## 3.4 Relationship between Project Length and Estimated Cost Range
+```{r}
+ggplot(highways,
+       aes(x=Estimated.Cost.Range,
+           y=Project.Length..kilometres.,
+           color=Estimated.Cost.Range)) +
+  geom_boxplot() +
+  coord_flip() +
+  labs(title="Project Length by Estimated Cost Range",
+       x="Estimated Cost Range",
+       y="Project Length (km)") +
+  theme(legend.position = "none")
+```
+The graph shows a general positive relationship between project length and estimated cost range, where higher-cost projects tend to have longer average lengths. However, this trend is not strictly consistent, as projects in the highest cost range (500+ million) show a slight decrease in average length. Additionally, some lower-cost categories include unusually long projects, indicating that cost is influenced by more factors than length alone.
+
+# 4. Hypothesis Testing
+Hypothesis:
+
+- $H_0:$ The mean project length is the same for rehabilitation and expansion projects
+
+- $H_{\alpha}:$ The mean project length differs between rehabilitation and expansion projects
+
+```{r}
+t.test(Project.Length..kilometres. ~ Program.Type,
+       data=highways)
+```
+Interpretation:
+
+- We fail to reject the null hypothesis at significant level of 0.5. Therefore, the mean project length is the same between rehabilitation and expansion projects.
+
+# 5. Prediction of Estimated Cost
+The goal of this analysis is to build a model that predicts whether a highway project is estimated to cost less than $25 million or at least $25 million.
+
+Logistic regression is used because the response variable has 2 possible outcomes. The model uses project characteristics including project length, program type, area, region, engineering status, delivery method, and type of work.
+
+## 5.1 Data Preparation
+### Handle the predictor Type of Work
+`Type Of Work` can contain multiple work types within a single observation, making it difficult to use directly as a predictor. The most common work types were first identified, then converted into separate binary variables indicating whether each project involves a particular type of work.
+
+```{r}
+library(tidyr)
+
+work_counts = highways %>%
+  separate_rows(Type.Of.Work, sep=",") %>%
+  mutate(Type.Of.Work = trimws(Type.Of.Work)) %>%
+  count(Type.Of.Work, sort=TRUE)
+
+head(work_counts)
+```
+The 5 most common work types are: Resurfacing, Bridge rehabilitation, Culvert replacement, Bridge replacement, Culvert rehabilitation.
+
+A new binary variable will be created for each of these work types.
+
+```{r}
+highways = highways %>%
+  mutate(
+    Resurface = ifelse(grepl("resurfacing", Type.Of.Work, ignore.case=T), 1, 0),
+    Bridge.Rehab = ifelse(grepl("bridge rehabilitation", Type.Of.Work, ignore.case=T), 1, 0),
+    Culvert.Replace = ifelse(grepl("culvert replacement", Type.Of.Work, ignore.case=T), 1, 0),
+    Bridge.Replace = ifelse(grepl("bridge replacement", Type.Of.Work, ignore.case=T), 1, 0),
+    Culvert.Rehab = ifelse(grepl("culvert rehabilitation", Type.Of.Work, ignore.case=T), 1, 0),
+  )
+```
+
+### Create Cost Category variable
+The original `Estimated Cost Range` variable contains multiple cost ranges. To simplify the prediction task and avoid having too many outcome categories for a small dataset, the ranges were grouped into 2 categories:
+
+- Low Cost (1): Less than $25 million
+- High Cost (0): $25 million or more
+
+This part converts the outcome into a binary variable suitable for logistic regression.
+
+```{r}
+highways = highways %>% 
+  mutate(Cost.Category = ifelse(Estimated.Cost.Range %in% c("$0 to $10 million", 
+                                                            "$10 to $25 million"), 
+                                1, 0))
+```
+
+### Split train and test data
+The dataset was divided into 70% training data and 30% testing data. The training data is used to build the model, while the testing data is reserved to evaluate how well the model predicts previously unseen projects.
+
+```{r}
+set.seed(123)
+highways = highways %>%
+  mutate(group = sample(c("train", "test"),
+                        size = nrow(highways),
+                        prob = c(0.7, 0.3),
+                        replace = T))
+
+highways.train = highways %>% filter(group=="train")
+highways.test = highways %>% filter(group=="test")
+```
+## 5.2 Logistic Regression
+A logistic regression model was fitted using project length, program type, area, region, and selected work types as predictors.
+```{r}
+# fit the model
+model = glm(Cost.Category ~
+              Project.Length..kilometres. +
+              Program.Type +
+              Area +
+              Region +
+              Resurface +
+              Bridge.Rehab +
+              Culvert.Replace +
+              Bridge.Replace +
+              Culvert.Rehab,
+            data=highways.train,
+            family=binomial)
+summary(model)
+```
+The model was used to make prediction on the testing dataset. The testing accuracy is 86%, indicating a good model.
+
+```{r}
+# making prediction
+prob = predict(model,
+               newdata=highways.test,
+               type="response")
+pred = ifelse(prob >= 0.5, 1, 0)
+
+# confusion matrix
+table = table(pred, highways.test$Cost.Category)
+table
+
+# testing accuracy
+sum(diag(table)/sum(table))
+```
+
+# 6. Summary of Findings
+The analysis of Ontario's Northern and Southern Highway Programs revealed several key patterns:
+
+- Southern Ontario has more highway projects overall, with regional distributions differing between the Northern and Southern Programs.
+
+- Rehabilitation projects make up the majority of projects, indicating that highway infrastructure rather than expansion
+
+- Rehabilitation and expansion projects have similar project length distributions, and the hypothesis test found insufficient evidence of a significant difference in their mean project lengths
+
+- Most projects are planned, with similar project status distributions between rehabilitation and expansion projects
+
+- Southern Ontario has a higher proportion of high-cost projects, suggesting greater infrastrucutre investment compared with Northern Ontario.
+
+- Project length generally increases with estimated cost, although the relationship is not consistent across all cost ranges, indicating that other factors also influence project cost.
+
+- The logistic regression model achieved 86% testing accuracy in classifying projects as below or at least $25 million in estimated cost.
