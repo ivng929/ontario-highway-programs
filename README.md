@@ -23,7 +23,6 @@ Two datasets were used:
 |`ontario-highway-southern.csv`| Dataset for Ontario's Southern Highways Program|
 |`ontario-highway.Rmd`| R Markdown file containing the complete analysis and code |
 |`ontario-highway.pdf`| Report containing the full analysis, visualizations, statistical tests, model results, and findings|
-|`README.md`| Project overview, methodology summary, key findings|
 
 For the complete analysis and visual output, please refer to `ontario-highway.pdf`
 
